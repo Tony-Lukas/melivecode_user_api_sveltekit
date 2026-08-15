@@ -1,6 +1,15 @@
-import type {User, UserDetail, PaginatedUsers, CreateUserInput, UpdateUserInput, ApiMessageResponse} from "./types";
+import axios, {AxiosError} from "axios";
+import { PUBLIC_BASE_URL } from '$env/static/public';
+import type {
+    User, 
+    UserDetail, 
+    PaginatedUsers, 
+    CreateUserInput, 
+    UpdateUserInput, 
+    ApiMessageResponse
+} from "./types";
 
-const API_BASE = "https://melivecode.com/api/users";
+const API_BASE = PUBLIC_BASE_URL;
 
 export class ApiError extends Error {
     status: number;
@@ -10,23 +19,31 @@ export class ApiError extends Error {
         this.status = status;
     }
 }
+/**
+ * Convert Axios errors to custom ApiError. 
+ */
+function handleError(error: unknown): never {
+    if(axios.isAxiosError(error)){
+        const status = error.response?.status ?? 500;
 
-async function handleResponse<T>(res: Response): Promise<T> {
-    let body: unknown = null;
-    try{
-        body = await res.json();
-    }catch{
-        // no JSON body
-    }
-    if(!res.ok){
         const message = 
-        (body && typeof body === 'object' && 'message' in body ?
-            (body as {message?: string}).message : undefined) 
-        ?? `Request failed with status ${res.status}`;
-        throw new ApiError(message, res.status);   
+            error.response?.data?.message ??
+            error.message ??
+            `Request Failed with status ${status}`;
+
+        throw new ApiError(message, status);
     }
-    return body as T;
+    throw error;
 }
+/**
+* Axios instance
+ */
+const api = axios.create({
+    baseURL: API_BASE,
+    headers: {
+        "Content-Type": "application/json"
+    }
+});
 
 export interface ListUsersParams {
     search?: string;
@@ -40,61 +57,61 @@ export interface ListUsersParams {
 export async function listUsers(
     params: ListUsersParams = {}
 ): Promise<User[] | PaginatedUsers>{
-   const query = new URLSearchParams();
-   if(params.search) query.set('search', params.search);
-   if(params.page) query.set('page', String(params.page));
-   if(params.per_page) query.set('per_page', String(params.per_page));
-   if(params.sort_columns) query.set('sort_columns', params.sort_columns);
-   if(params.sort_order) query.set('sort_order', params.sort_order);
-   
-   const qs = query.toString();
-   console.log(qs)
-   const res = await fetch(`${API_BASE}${qs ? `?${qs}`:''}`,
-        {headers: {'Content-Type':'application/json'} 
-    });
-
-    return handleResponse<User[] | PaginatedUsers>(res);
+   try{
+    const response = await api.get<User[] | PaginatedUsers>("",{params});
+    return response.data;
+   } catch (error){
+    handleError(error);
+   }
 }
 
 /** GET /api/users/{id} */
 export async function getUser(id: number):Promise<UserDetail> {
-    const res = await fetch(`${API_BASE}/${id}`,{
-        headers: {'Content-Type':'application/json'}
-    });
-    const body =  await handleResponse<ApiMessageResponse<UserDetail>>(res);
-    if(!body.user) throw new ApiError("User not found in response",500);
-    return  body.user;
+    try{
+        const response = await api.get<ApiMessageResponse<UserDetail>>(`/${id}`);
+        if (!response.data.user) {
+            throw new ApiError("User not found in response",500)
+        }
+        return response.data.user;
+    }catch (error){
+        handleError(error);
+    }
 }
 
 /** POST /api/users */
-export async function createUser(input: CreateUserInput): Promise<UserDetail>{
-    const res = await fetch(API_BASE, {
-        method: 'POST',
-        headers: {'Content-Type':'application/json'},
-        body: JSON.stringify(input)
-    });
-    const body = await handleResponse<ApiMessageResponse<UserDetail>>(res);
-    if(!body.user) throw new ApiError('User not return from create',500);
-    return body.user;
+export async function createUser(
+    input: CreateUserInput
+): Promise<UserDetail>{
+    try{
+        const response = await api.post<ApiMessageResponse<UserDetail>>("",input);
+        if(!response.data.user){
+            throw new ApiError("User not returned from create",500);
+        }
+        return response.data.user;
+    } catch (error) {
+        handleError(error);
+    }
 }
 
 /** PUT /api/users/{id} */
 export async function updateUser(id:number, input:UpdateUserInput): Promise<UserDetail>{
-    const res = await fetch(`${API_BASE}/${id}`,{
-        method: "PUT",
-        headers: {"Content-Type":'application/json'},
-        body: JSON.stringify(input)
-    });
-    const body = await handleResponse<ApiMessageResponse<UserDetail>>(res);
-    if(!body.user) throw new ApiError('User not return from update',500);
-    return body.user;
+    
+    try{
+        const response = await api.put<ApiMessageResponse<UserDetail>>(`/${id}`,input);
+        if(!response.data.user){
+            throw new ApiError("User not returned from update",500);
+        }
+        return response.data.user;
+    } catch (error) {
+        handleError(error);
+    }
 }
 
 /** DELETE /api/user/{id}*/
 export async function deleteUser(id:number): Promise<void>{
-    const res = await fetch(`${API_BASE}/${id}`,{
-        method: "DELETE",
-        headers: {"Content-Type":'application/json'}
-    });
-    await handleResponse<ApiMessageResponse<never>>(res);
+    try{
+        await api.delete<ApiMessageResponse<never>>(`/${id}`);
+    }catch (error){
+        handleError(error);
+    }
 }
